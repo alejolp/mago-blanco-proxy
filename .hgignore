@@ -1,0 +1,13 @@
+^Debug
+^.settings/
+# ^\.cproject
+# ^\.project
+^magoblanco-vc2008/Debug
+^magoblanco-vc2008/Release
+^magoblanco-vc2008/magoblanco-vc2008\.ncb
+^magoblanco-vc2008/magoblanco-vc2008\.suo
+^magoblanco-vc2008/magoblanco-vc2008\.vcproj\..*\.user
+
+\.swp$
+~$
+

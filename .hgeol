@@ -1,0 +1,10 @@
+[repository]
+native = LF
+
+[patterns]
+**.cpp = native
+**.h = native
+**.txt = native
+**.vcproj = CRLF
+**.sln = CRLF
+
