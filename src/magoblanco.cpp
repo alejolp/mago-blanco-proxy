@@ -42,38 +42,14 @@ freely, subject to the following restrictions:
  *
  * FIXME: Limitar la cantidad de conexiones simultáneas hacia el host remoto.
  *
- * Breve descripción:
+ * FIXME: Limitar la cantidad de conexiones globales simultáneas.
+ *
+ * FIXME: Agregar el algoritmo de queues.
+ *
+ * FIXME: Agregar más threads.
  *
  * Desarrollado con boost version 1.42.
  *
- * Este programa es un pequeño proxy de conexiones TCP IPv4, para intentar
- * resistir un ataque de negacion de servicio, distribuyendo la carga
- * entre varios cores del servidor.
- *
- * Para esto, se levantan dos threads: uno que solo se encarga de aceptar
- * nuevas conexiones, y otro thread que se encarga de hacer la pasarela de
- * envio y recepcion de datos. Lo que llega por un socket lo manda por el otro
- * y viceversa.
- *
- * Tener un thread dedicado solo a aceptar conexiones hace que se puedan
- * aceptar tan rapido como sea posible, sin saturar el backlog del socket.
- *
- * Se valida la cantidad de conexiones activas desde una misma IP al mismo
- * tiempo, y tambien la cantidad de intentos de conexion en un período de
- * tiempo. Si en alguno de estos casos se pasa el límite definido, se cierra
- * el socket.
- *
- * El manejo de sockets se realiza con boost::asio, que utiliza epoll en Linux
- * y IOCP en Windows, ambos mecanismos eficientes al manejar la notificación
- * de eventos en cientos de sockets simultáneos.
- *
- * La tabla de información por IP es una tabla hash boost::unordered_map.
- *
- * El manejo de memoria de la tabla hash esté redefinido, usando
- * boost::allocator_pool, y la creacion de los objetos session se hace con
- * boost::object_pool.
- *
- * Los objetos session representan cada conexion abierta.
  *
  */
 
