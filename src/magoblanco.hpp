@@ -167,6 +167,8 @@ class session
         void *operator new(size_t size);
         void operator delete(void *ptr);
 
+        void just_close();
+
 	private:
         void *operator new[](size_t size);
         void operator delete[](void *memory);
@@ -210,6 +212,7 @@ private:
         size_t data_local_size_;
 
         bool closing_;
+        bool queued_for_del_;
         server* server_;
         int async_ops_;
 

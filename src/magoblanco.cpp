@@ -1,10 +1,8 @@
 
 /*
-   Gandalf - "You Shall Not Pass"
+   Mago Blanco - "You Shall Not Pass"
    Alejandro Santos - alejolp@alejolp.com.ar
-*/
 
-/*
 Copyright (c) 2012 Alejandro Santos
 
 This software is provided 'as-is', without any express or implied
@@ -28,6 +26,8 @@ freely, subject to the following restrictions:
  */
 
 /*
+ * FIXME: Creo que hay una mezcla horrible de tabs y espacios en el mismo codigo.
+ *
  * FIXME: No hay ni un solo comentario en el codigo. Horror.
  *
  * FIXME: Probar Google sparsehash.
@@ -82,6 +82,7 @@ freely, subject to the following restrictions:
 #include <string>
 #include <deque>
 #include <fstream>
+#include <sstream>
 
 #include <boost/bind.hpp>
 #include <boost/asio.hpp>
@@ -98,10 +99,13 @@ freely, subject to the following restrictions:
 #include <boost/program_options.hpp>
 
 #include "magoblanco.hpp"
+#include "logger.h"
 
 namespace po = boost::program_options;
 
 #define MB_VERSION "1.0"
+
+// FIXME: Variables globales (zomg!!!111one), moverlas a un struct.
 
 int PORT1 = 0;
 int PORT2 = 0;
@@ -110,21 +114,22 @@ bool destination_is_localhost = false;
 boost::asio::ip::tcp::endpoint destination_ep;
 bool verbose = false;
 int MAX_CONNECTIONS_BY_IP = 8;
-int MAX_TIME_DELTA = 5;
+int MAX_TIME_DELTA = 10;
 int MAX_TIME_COUNT = 10;
 int PENALTY_TIME = 30;
 int PENALTY_INC_TIME = 5;
 std::string log_file_name;
-std::ofstream log_file;
+magoblanco::logger mblog;
 
 po::options_description config("config");
-std::string config_file;
+std::string config_file_name;
 po::variables_map config_vm;
 
 namespace {
 	boost::object_pool<session> session_allocator_;
-	// boost::pool_allocator<ipv4_count_map_t::value_type> hash_alloc_;
 }
+
+// Manejo de memoria custom para los objetos session.
 
 void* session::operator new(size_t size)
 {
@@ -136,15 +141,8 @@ void session::operator delete(void *ptr)
 	session_allocator_.free(static_cast<session*>(ptr));
 }
 
-/* Log stuff */
-
-std::ofstream& write_log() {
-	log_file << boost::posix_time::second_clock::local_time() << " - ";
-	return log_file;
-}
-
 session::session(boost::asio::io_service& io_service, server* se)
-	: resolver_(io_service), remote_socket_(io_service), local_socket_(io_service), data_remote_size_(0), data_local_size_(0), closing_(false), server_(se), async_ops_(0), total_remote_data_(0), total_local_data_(0)
+	: resolver_(io_service), remote_socket_(io_service), local_socket_(io_service), data_remote_size_(0), data_local_size_(0), closing_(false), queued_for_del_(false), server_(se), async_ops_(0), total_remote_data_(0), total_local_data_(0)
 {
 }
 
@@ -246,11 +244,8 @@ void session::start_local_write()
 				boost::asio::placeholders::error));
 }
 
-void session::error_and_close(const boost::system::error_code& err)
+void session::just_close()
 {
-	if (verbose)
-		std::cout << this << " Error: " << err.message() << "\n";
-
 	if (!closing_) {
 		closing_ = true;
 
@@ -262,8 +257,19 @@ void session::error_and_close(const boost::system::error_code& err)
 	}
 
 	if (async_ops_ == 0) {
-		server_->enqueue_for_deletion(this);
+		if (!queued_for_del_) {
+			queued_for_del_ = true;
+			server_->enqueue_for_deletion(this);
+		}
 	}
+}
+
+void session::error_and_close(const boost::system::error_code& err)
+{
+	if (verbose)
+		std::cout << this << " Error: " << err.message() << "\n";
+
+	just_close();
 }
 
 void session::handle_remote_read(const boost::system::error_code& error,
@@ -343,7 +349,7 @@ void session::handle_local_write(const boost::system::error_code& error)
 
 
 server::server(int port)
-: acceptor_(io_service_accept_, tcp::endpoint(tcp::v4(), port)), timer_(io_service_client_), active_connections_by_addr_()
+: acceptor_(io_service_accept_, tcp::endpoint(tcp::v4(), port)), timer_(io_service_client_)
 {
     start_accept();
 }
@@ -357,7 +363,7 @@ void server::run()
     // FIXME: WSASelect con condicion.
 #endif
 
-    write_log() << " Listo." << std::endl;
+    mblog.log("Listo");
 
     io_service_accept_.run();
     clients_thread_.join();
@@ -377,10 +383,18 @@ void server::enqueue_for_deletion(session_ptr ss)
 
 bool server::on_session_open(session* ss)
 {
+	/*
+	 * THREADING NOTE: Esta funcion se ejecuta en un thread diferente a on_session_close.
+	 */
+
 	if (verbose)
 		std::cerr << ss << " on_session_open " << std::endl;
 
-	write_log() << ss << " Nueva conexion desde " << ss->remote_endpoint_addr() << std::endl;
+	{
+		std::stringstream logs;
+		logs << ss << " Nueva conexion desde " << ss->remote_endpoint_addr() << " active_table_size=" << active_connections_by_addr_.size();
+		mblog.log(logs);
+	}
 
     boost::asio::ip::address_v4 key = ss->remote_endpoint_addr();
 
@@ -398,9 +412,15 @@ bool server::on_session_open(session* ss)
 
     	// Mientras esta bloqueada se la rechaza sin mas preguntas.
     	if (tact < item.blocked_until_) {
-    		if (verbose)
+    		if (verbose) {
     			std::cerr << ss << " IP penalizada por " << (item.blocked_until_ - tact) << " segundos restantes." << std::endl;
-    		write_log() << ss << " IP penalizada por " << (item.blocked_until_ - tact) << " segundos restantes." << std::endl;
+    		}
+
+    		{
+    			std::stringstream logs;
+    			logs << ss << " IP penalizada por " << (item.blocked_until_ - tact) << " segundos restantes.";
+    			mblog.log(logs);
+    		}
 
     		return false;
     	} else if (item.blocked_dirty_) {
@@ -410,9 +430,15 @@ bool server::on_session_open(session* ss)
 
     	// Limite maximo de sockets por IP al mismo tiempo.
     	if ((int)item.count_ >= MAX_CONNECTIONS_BY_IP) {
-    		if (verbose)
+    		if (verbose) {
     			std::cerr << ss << " Limite por IP alcanzado" << std::endl;
-    		write_log() << ss << " Limite por IP alcanzado" << std::endl;
+    		}
+
+    		{
+    			std::stringstream logs;
+    			logs << ss << " Limite por IP alcanzado";
+    			mblog.log(logs);
+    		}
 
     		item.blocked_until_ = tact + boost::posix_time::seconds(PENALTY_TIME);
 
@@ -422,13 +448,29 @@ bool server::on_session_open(session* ss)
     	// Limite de intentos de conexion por periodo de tiempo.
     	// FIXME: Esta implementacion es muy naive, hacer algo mejorcito.
 
-    	if ((tact - item.conn_first_).seconds() >= MAX_TIME_DELTA) {
-    		if (item.conn_cant_ >= MAX_TIME_COUNT) {
+    	/*
+    	 * La forma de detectar un ataque es contar la cantidad de intentos de
+    	 * conexion, y medir el tiempo que pasó entre la primera vez y la actual.
+    	 * Si la cantidad es igual al limite maximo de cantidad, y el tiempo
+    	 * es menor al configurado, significa que le están dando con un martillo
+    	 * al server.
+    	 *
+    	 */
+
+    	item.conn_cant_++;
+    	if (item.conn_cant_ > MAX_TIME_COUNT) {
+    		if ((tact - item.conn_first_).seconds() <= MAX_TIME_DELTA) {
     			int block_secs = PENALTY_TIME + item.blocked_points_;
 
-				if (verbose)
+				if (verbose) {
 					std::cerr << ss << " Limite por frecuencia alcanzado, bloqueada por " << block_secs << " segundos." << std::endl;
-				write_log() << ss << " Limite por frecuencia alcanzado, bloqueada por " << block_secs << " segundos." << std::endl;
+				}
+
+	    		{
+	    			std::stringstream logs;
+	    			logs << ss << " Limite por frecuencia alcanzado, bloqueada por " << block_secs << " segundos.";
+	    			mblog.log(logs);
+	    		}
 
 	    		item.blocked_until_ = tact + boost::posix_time::seconds(block_secs);
 	    		item.blocked_dirty_ = true;
@@ -438,8 +480,6 @@ bool server::on_session_open(session* ss)
 
 				return false;
     		}
-    	} else {
-    		item.conn_cant_++;
     	}
     } else {
     	// IP nunca antes vista. Inicializar los campos.
@@ -449,21 +489,28 @@ bool server::on_session_open(session* ss)
 	item.count_++;
 	item.clients_list_.insert(ss);
 
-	write_log() << ss << " Aceptada, count=" << item.count_ << " points=" << item.blocked_points_ << " conn_cant=" << item.conn_cant_ << std::endl;
+	{
+		std::stringstream logs;
+		logs << ss << " Aceptada, count=" << item.count_ << " points=" << item.blocked_points_ << " conn_cant=" << item.conn_cant_;
+		mblog.log(logs);
+	}
+
     return true;
 }
 
-void server::attack_detected(conn_table_item_t& item, session_ptr ss) {
-
+void server::attack_detected(conn_table_item_t& item, session_ptr ss)
+{
 	for (clients_list_t::iterator it = item.clients_list_.begin(); it != item.clients_list_.end(); ++it) {
-		enqueue_for_deletion(*it);
+		(*it)->just_close();
 	}
-
-	item.clients_list_.clear();
 }
 
 void server::on_session_close(session* ss)
 {
+	/*
+	 * THREADING NOTE: Esta funcion se ejecuta en un thread diferente a on_session_open.
+	 */
+
 	if (verbose)
 		std::cerr << ss << " on_session_close " << active_connections_by_addr_.size() << std::endl;
 
@@ -477,9 +524,14 @@ void server::on_session_close(session* ss)
 	item.count_ -= 1;
 	item.clients_list_.erase(ss);
 
-	write_log() << ss << " Cerrada, count=" << item.count_ << " points=" << item.blocked_points_ << " conn_cant=" << item.conn_cant_ << std::endl;
+	{
+		std::stringstream logs;
+		logs << ss << " Cerrada, count=" << item.count_ << " points=" << item.blocked_points_ << " conn_cant=" << item.conn_cant_ << " active_table_size=" << active_connections_by_addr_.size();
+		mblog.log(logs);
+	}
 
-	// FIXME: Hacer una limpieza de la tabla cada cierto tiempo?
+	// FIXME: Hacer una limpieza de la tabla cada cierto tiempo? Tener en cuenta que map.insert se
+	//        llama desde otro thread.
 }
 
 void server::clients_thread_func()
@@ -552,15 +604,15 @@ int parse_cmd_options(int argc, char* argv[])
 {
 
 	config.add_options()
-			("help", "help")
-			("version,v", "print program version")
-			("verbose", "enable verbose output")
-			("config,c", po::value<std::string>(&config_file), "config file")
-			("log", po::value<std::string>(&log_file_name), "log file")
-			("listen-port,l", po::value<int>(&PORT1), "listening (local) port number")
-			("remote-port,r", po::value<int>(&PORT2), "remote port number")
-			("remote-host,h", po::value<std::string>(&destination)->default_value("localhost"), "remote host address")
-			("max-conns-by-ip", po::value<int>(&MAX_CONNECTIONS_BY_IP)->default_value(MAX_CONNECTIONS_BY_IP), "number of max connections from the same IP")
+			("help", "Ayuda")
+			("version,v", "Muestra la version del programa")
+			("verbose", "Activa la salida de debug")
+			("config,c", po::value<std::string>(&config_file_name), "Archivo de configuracion")
+			("log", po::value<std::string>(&log_file_name), "Archivo de log")
+			("listen-port,l", po::value<int>(&PORT1), "Puerto de escucha")
+			("remote-port,r", po::value<int>(&PORT2), "Puerto remoto")
+			("remote-host,h", po::value<std::string>(&destination)->default_value("localhost"), "Host remoto")
+			("max-conns-by-ip", po::value<int>(&MAX_CONNECTIONS_BY_IP)->default_value(MAX_CONNECTIONS_BY_IP), "Numero maximo de conexiones simultaneas desde la misma IP")
 			("max-time-delta", po::value<int>(&MAX_TIME_DELTA)->default_value(MAX_TIME_DELTA), "MAX_TIME_DELTA")
 			("max-time-count", po::value<int>(&MAX_TIME_COUNT)->default_value(MAX_TIME_COUNT), "MAX_TIME_COUNT")
 			("penalty-time", po::value<int>(&PENALTY_TIME)->default_value(PENALTY_TIME), "PENALTY_TIME")
@@ -571,13 +623,13 @@ int parse_cmd_options(int argc, char* argv[])
     po::notify(config_vm);
 
     if (config_vm.count("config")) {
-		std::ifstream ifs(config_file.c_str());
+		std::ifstream ifs(config_file_name.c_str());
 
 		if (ifs) {
 			po::store(po::parse_config_file(ifs, config), config_vm);
 			po::notify(config_vm);
 		} else {
-			std::cerr << "error opening config file" << std::endl;
+			std::cerr << "Erorr al abrir el archivo de configuracion." << std::endl;
 			return 1;
 		}
     }
@@ -617,18 +669,21 @@ int main(int argc, char* argv[])
         /* Log */
 
         if (log_file_name.size()) {
-        	log_file.open(log_file_name.c_str(), std::ios_base::app | std::ios_base::ate);
+        	try {
+        		mblog.open(log_file_name);
 
-        	if (!log_file) {
+        	} catch (std::exception e) {
         		std::cerr << "Error al abrir el archivo de log" << std::endl;
         		return 1;
         	}
         } else {
-        	std::cerr << "No log file. Aborting." << std::endl;
+        	std::cerr << "Debe especificar un archivo de log." << std::endl;
         	return 1;
         }
 
-        write_log() << "Iniciando servidor, puerto " << PORT1 << ", destino: " << destination << ":" << PORT2 << std::endl;
+        std::stringstream ss;
+        ss << "Iniciando servidor, puerto " << PORT1 << ", destino: " << destination << ":" << PORT2;
+        mblog.log(ss);
 
         server s(PORT1);
 
