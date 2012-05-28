@@ -36,7 +36,7 @@ freely, subject to the following restrictions:
 
 namespace magoblanco {
 
-class logger {
+class logger : private boost::noncopyable {
 public:
 	logger();
 	virtual ~logger();
