@@ -2,12 +2,17 @@
 ^.settings/
 # ^\.cproject
 # ^\.project
-^magoblanco-vc2008/Debug
-^magoblanco-vc2008/Release
-^magoblanco-vc2008/magoblanco-vc2008\.ncb
-^magoblanco-vc2008/magoblanco-vc2008\.suo
-^magoblanco-vc2008/magoblanco-vc2008\.vcproj\..*\.user
-
 \.swp$
 ~$
 
+# Windows
+\.sdf$
+\.opensdf$
+\.filters$
+\.user$
+^vcpp2010/magoblanco/Debug
+^vcpp2010/magoblanco/Release
+^vcpp2010/magoblanco/ipch
+^vcpp2010/magoblanco/magoblanco\.ncb
+^vcpp2010/magoblanco/magoblanco\.suo
+^vcpp2010/magoblanco/magoblanco\.vcproj\..*\.user
