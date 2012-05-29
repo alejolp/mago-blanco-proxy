@@ -5,6 +5,8 @@
  *      Author: alejo
  */
 
+#include <deque>
+
 #include <boost/noncopyable.hpp>
 #include <boost/bind.hpp>
 #include <boost/asio.hpp>
@@ -19,7 +21,7 @@
 #include <boost/pool/pool_alloc.hpp>
 
 #include "configparms.h"
-
+#include "session.h"
 
 #ifndef SERVER_H_
 #define SERVER_H_
@@ -118,6 +120,8 @@ class server : private boost::noncopyable
 
     private:
 
+        void connect_force_remove(session_ptr ss);
+
         void clients_thread_func();
         void start_accept();
         void start_timer();
@@ -142,7 +146,11 @@ class server : private boost::noncopyable
 
         ipv4_count_map_t active_connections_by_addr_;
 
-        std::deque<session_ptr> clients_for_connect_;
+        // Para seguirle el rastro a los sockets que están intentando conectarse actualmente
+        // al host remoto. El limite de conexiones simultaneas es MAX_CONCURRENT_CONNS_TO_REMOTE
+        int clients_connecting_;
+        boost::mutex clients_queue_lock_;
+        waiting_for_connect_list_t clients_for_connect_;
 
         boost::pool_allocator< session_ptr > alloc_session_ptr_;
 };

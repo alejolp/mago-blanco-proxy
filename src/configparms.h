@@ -48,6 +48,7 @@ namespace po = boost::program_options;
 #define MB_DEFAULT_MAX_TIME_COUNT 5
 #define MB_DEFAULT_PENALTY_TIME 30
 #define MB_DEFAULT_PENALTY_INC_TIME 10
+#define MB_DEFAULT_MAX_CONCURRENT_CONNS_TO_REMOTE 5
 
 class configparms : private boost::noncopyable {
 public:
@@ -69,6 +70,7 @@ public:
 	inline int get_PENALTY_TIME() const { return PENALTY_TIME; }
 	inline int get_PENALTY_INC_TIME() const { return PENALTY_INC_TIME; }
 	inline const std::string& get_log_file_name() const { return log_file_name; }
+	inline int get_MAX_CONCURRENT_CONNS_TO_REMOTE() const { return MAX_CONCURRENT_CONNS_TO_REMOTE; }
 
 private:
 	int PORT_LOCAL;
@@ -83,6 +85,7 @@ private:
 	int PENALTY_TIME;
 	int PENALTY_INC_TIME;
 	std::string log_file_name;
+	int MAX_CONCURRENT_CONNS_TO_REMOTE;
 
 	po::options_description config;
 	std::string config_file_name;

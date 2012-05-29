@@ -7,6 +7,7 @@
 
 #include <boost/noncopyable.hpp>
 #include <boost/asio.hpp>
+#include <boost/intrusive/list.hpp>
 
 #include "configparms.h"
 
@@ -19,6 +20,7 @@ namespace magoblanco {
 using boost::asio::ip::tcp;
 
 class server;
+struct session_waiting_list_traits;
 
 class session : private boost::noncopyable
 {
@@ -42,13 +44,15 @@ class session : private boost::noncopyable
 
         void init();
         void start();
+        void start_connect();
 
         void *operator new(size_t size);
         void operator delete(void *ptr);
 
-        void just_close();
-
         magoblanco::configparms& get_config();
+        inline boost::asio::io_service& get_io_service() { return local_socket_.get_io_service(); }
+
+        void request_close();
 
 	private:
         void *operator new[](size_t size);
@@ -73,9 +77,14 @@ class session : private boost::noncopyable
                 size_t bytes_transferred);
         void handle_local_write(const boost::system::error_code& error);
 
+        void just_close();
+        void request_close_handler();
+
         void error_and_close(const boost::system::error_code& err);
 
 private:
+        friend struct session_waiting_list_traits;
+
         tcp::resolver resolver_;
 
         boost::asio::ip::address_v4 remote_endpoint_addr_;
@@ -98,9 +107,19 @@ private:
         int async_ops_;
 
 public:
+        // FIXME: Arreglar esto.
+
         int64_t total_remote_data_;
         int64_t total_local_data_;
+        bool waiting_for_connect_;
+
+        boost::intrusive::list_member_hook<> waiting_for_connect_hook_;
 };
+
+typedef boost::intrusive::member_hook<session, boost::intrusive::list_member_hook<>, &session::waiting_for_connect_hook_> waiting_for_connect_hook_t;
+
+typedef boost::intrusive::list<session, waiting_for_connect_hook_t> waiting_for_connect_list_t;
+
 
 } /* namespace magoblanco */
 #endif /* SESSION_H_ */

@@ -8,12 +8,15 @@
 #include "server.h"
 #include "session.h"
 
+#include <boost/interprocess/detail/atomic.hpp>
+
 namespace magoblanco {
 
 
 server::server(magoblanco::configparms &cp, magoblanco::logger& mblog)
 : config_(cp), mblog_(mblog), acceptor_(io_service_accept_, tcp::endpoint(tcp::v4(), cp.get_port_local())), timer_(io_service_client_)
 {
+	clients_connecting_ = 0;
     start_accept();
 }
 
@@ -41,6 +44,11 @@ void server::stop()
 
 void server::enqueue_for_deletion(session_ptr ss)
 {
+	/*
+	 * THREADING NOTE: esta funcion se llama desde el thread de clientes.
+	 */
+
+	connect_force_remove(ss);
     clients_for_closing_.push_back(ss);
 }
 
@@ -148,6 +156,10 @@ bool server::on_session_open(session* ss)
 
 void server::attack_detected(const boost::posix_time::ptime& tact, conn_table_item_t& item, session_ptr ss)
 {
+	/*
+	 * THREADING NOTE: Esta funcion es llamada por el thread listener. No hay mutexes bloqueados aun.
+	 */
+
 	int block_secs = config_.get_PENALTY_TIME() + item.blocked_points_;
 
 	if (config_.get_verbose()) {
@@ -165,7 +177,7 @@ void server::attack_detected(const boost::posix_time::ptime& tact, conn_table_it
 	item.blocked_points_ += config_.get_PENALTY_INC_TIME();
 
 	for (clients_list_t::iterator it = item.clients_list_.begin(); it != item.clients_list_.end(); ++it) {
-		(*it)->just_close();
+		(*it)->request_close();
 	}
 }
 
@@ -199,8 +211,84 @@ void server::on_session_close(session* ss)
 	//        llama desde otro thread.
 }
 
+bool server::connect_want(session_ptr ss)
+{
+	/*
+	 * THREADING NOTE: Puede ser llamada por ambos threads.
+	 */
+
+	boost::mutex::scoped_lock l(clients_queue_lock_);
+	bool ret;
+
+	++clients_connecting_;
+
+	if (clients_connecting_ <= get_config().get_MAX_CONCURRENT_CONNS_TO_REMOTE()) {
+		ret = true;
+	} else {
+		clients_for_connect_.push_back(*ss);
+		ss->waiting_for_connect_ = true;
+		ret = false;
+	}
+
+	{
+		std::stringstream logs;
+		logs << ss << " connect_want: " << ret << ", connecting=" << clients_connecting_;
+		mblog_.log(logs);
+	}
+
+	return ret;
+}
+
+bool server::connect_done(session_ptr ss)
+{
+	/*
+	 * THREADING NOTE: Puede ser llamada por ambos threads.
+	 */
+
+	boost::mutex::scoped_lock l(clients_queue_lock_);
+
+	--clients_connecting_;
+
+	if (!clients_for_connect_.empty()) {
+		session& next = clients_for_connect_.front();
+		clients_for_connect_.pop_front();
+
+		/* Passing the baton, passing the papa caliente */
+
+		next.start_connect();
+	}
+
+	{
+		std::stringstream logs;
+		logs << ss << " connect_done, connecting=" << clients_connecting_;
+		mblog_.log(logs);
+	}
+
+	return true;
+}
+
+void server::connect_force_remove(session_ptr ss)
+{
+	/*
+	 * THREADING NOTE: Puede ser llamada por ambos threads.
+	 */
+
+	boost::mutex::scoped_lock l(clients_queue_lock_);
+
+	if (ss->waiting_for_connect_) {
+		ss->waiting_for_connect_ = false;
+		// O(1) yeah!!
+		clients_for_connect_.erase( waiting_for_connect_list_t::s_iterator_to(*ss) );
+		--clients_connecting_;
+	}
+}
+
 void server::clients_thread_func()
 {
+	/*
+	 * THREADING NOTE: Esta es la funcion principal del thread de clientes.
+	 */
+
     work_ptr work(new boost::asio::io_service::work(io_service_client_));
 
     start_timer();
@@ -210,6 +298,10 @@ void server::clients_thread_func()
 
 void server::start_timer()
 {
+	/*
+	 * THREADING NOTE:El callback del timer se ejecuta en el thread de clientes.
+	 */
+
     timer_.expires_from_now(boost::posix_time::seconds(1));
     timer_.async_wait(boost::bind(&server::handle_timer, this,
         boost::asio::placeholders::error));
@@ -217,6 +309,10 @@ void server::start_timer()
 
 void server::start_accept()
 {
+	/*
+	 * THREADING NOTE: El callback del accept se ejecuta en el thread del listener.
+	 */
+
     session* new_session = new session(io_service_client_, this);
     acceptor_.async_accept(new_session->remote_socket(),
             boost::bind(&server::handle_accept, this, new_session,
@@ -226,6 +322,10 @@ void server::start_accept()
 void server::handle_accept(session* new_session,
         const boost::system::error_code& error)
 {
+	/*
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread del listener.
+	 */
+
     if (!error)
     {
     	new_session->init();
@@ -249,12 +349,17 @@ void server::handle_accept(session* new_session,
 
 void server::handle_timer(const boost::system::error_code&)
 {
+	/*
+	 * THREADING NOTE: esta funcion se llama desde el thread de clientes.
+	 */
+
     while (!clients_for_closing_.empty())
     {
         session_ptr ss = clients_for_closing_.front();
         clients_for_closing_.pop_front();
 
         on_session_close(ss);
+        connect_force_remove(ss);
 
         if (config_.get_verbose())
         	std::cerr << ss << " cerrada la sesion (" << ss->total_local_data_ << ", " << ss->total_remote_data_ << ")." << std::endl;

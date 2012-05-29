@@ -35,6 +35,7 @@ configparms::configparms()
 	destination = MB_DEFAULT_DESTINATION;
 	verbose = MB_DEFAULT_VERBOSE;
 	MAX_CONNECTIONS_BY_IP = MB_DEFAULT_MAX_CONNECTIONS_BY_IP;
+	MAX_CONCURRENT_CONNS_TO_REMOTE = MB_DEFAULT_MAX_CONCURRENT_CONNS_TO_REMOTE;
 	MAX_TIME_DELTA = MB_DEFAULT_MAX_TIME_DELTA;
 	MAX_TIME_COUNT = MB_DEFAULT_MAX_TIME_COUNT;
 	PENALTY_TIME = MB_DEFAULT_PENALTY_TIME;
@@ -55,6 +56,7 @@ bool configparms::parse_opts(int argc, char** argv)
 		("remote-port,r", po::value<int>(&PORT_REMOTE), "Puerto remoto")
 		("remote-host,h", po::value<std::string>(&destination)->default_value("localhost"), "Host remoto")
 		("max-conns-by-ip", po::value<int>(&MAX_CONNECTIONS_BY_IP)->default_value(MAX_CONNECTIONS_BY_IP), "Numero maximo de conexiones simultaneas desde la misma IP")
+		("max-conc-conns-to-remote", po::value<int>(&MAX_CONCURRENT_CONNS_TO_REMOTE)->default_value(MAX_CONCURRENT_CONNS_TO_REMOTE), "Numero maximo de intentos de conexion simultaneos hacia el host remoto")
 		("max-time-delta", po::value<int>(&MAX_TIME_DELTA)->default_value(MAX_TIME_DELTA), "MAX_TIME_DELTA")
 		("max-time-count", po::value<int>(&MAX_TIME_COUNT)->default_value(MAX_TIME_COUNT), "MAX_TIME_COUNT")
 		("penalty-time", po::value<int>(&PENALTY_TIME)->default_value(PENALTY_TIME), "PENALTY_TIME")

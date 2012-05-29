@@ -40,13 +40,13 @@ freely, subject to the following restrictions:
  *
  * FIXME: Guardar logs y estadisticas. Rotacion de logs.
  *
- * FIXME: Limitar la cantidad de conexiones simultáneas hacia el host remoto.
+ * FIXME: Limitar la cantidad de intentos de conexiones simultáneas hacia el host remoto.
  *
  * FIXME: Limitar la cantidad de conexiones globales simultáneas.
  *
  * FIXME: Agregar el algoritmo de queues.
  *
- * FIXME: Agregar más threads.
+ * FIXME: Crear un pool de threads y mover el codigo de deteccion de DDoS a los threads del pool.
  *
  * Desarrollado con boost version 1.42.
  *

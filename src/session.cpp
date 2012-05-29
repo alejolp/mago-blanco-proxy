@@ -27,8 +27,16 @@ void session::operator delete(void *ptr)
 }
 
 session::session(boost::asio::io_service& io_service, server* se)
-	: resolver_(io_service), remote_socket_(io_service), local_socket_(io_service), data_remote_size_(0), data_local_size_(0), closing_(false), queued_for_del_(false), server_(se), async_ops_(0), total_remote_data_(0), total_local_data_(0)
+	: resolver_(io_service), remote_socket_(io_service), local_socket_(io_service), server_(se)
 {
+	data_remote_size_ = 0;
+	data_local_size_ = 0;
+	closing_ = false;
+	queued_for_del_ = false;
+	async_ops_ = 0;
+	total_remote_data_ = 0;
+	total_local_data_ = 0;
+	waiting_for_connect_ = true;
 }
 
 configparms& session::get_config()
@@ -44,7 +52,9 @@ void session::init()
 
 void session::start()
 {
-	start_connect(get_config().get_destination_ep());
+	if (server_->connect_want(this)) {
+		start_connect(get_config().get_destination_ep());
+	}
 }
 
 #if 0
@@ -69,6 +79,11 @@ void session::handle_resolve(const boost::system::error_code& err,
 }
 #endif
 
+void session::start_connect()
+{
+	start_connect(get_config().get_destination_ep());
+}
+
 void session::start_connect(const boost::asio::ip::tcp::endpoint& ep)
 {
 	local_socket_.async_connect(ep,
@@ -76,11 +91,16 @@ void session::start_connect(const boost::asio::ip::tcp::endpoint& ep)
 				boost::asio::placeholders::error));
 
 	++async_ops_;
+
+	/* En este punto el mutex server::clients_queue_lock_ aun está lockeado, OK. */
+	waiting_for_connect_ = false;
 }
 
 void session::handle_connect(const boost::system::error_code& err)
 {
 	--async_ops_;
+
+	server_->connect_done(this);
 
 	if (!err)
 	{
@@ -133,16 +153,44 @@ void session::start_local_write()
 				boost::asio::placeholders::error));
 }
 
+void session::request_close()
+{
+	/*
+	 * THREADING NOTE: Esta funcion puede ser llamada desde varios threads.
+	 */
+
+	// Esta funcion sirve para cerrar la sesion desde otro thread, diferente al de clientes.
+	// Para cerrar la session desde el thread de clientes llamar directamente a just_close().
+	//
+	// Se usa la funcion post() para avisarle al thread the clientes que quiero cerrar esta sesion
+	// sin tener que usar locking. El handler se ejecuta en el thread de clientes.
+
+	get_io_service().post(boost::bind(&session::request_close_handler, this));
+}
+
+void session::request_close_handler()
+{
+	/*
+	 * THREADING NOTE: Esta funcion puede ser llamada solo desde el threads de clientes.
+	 */
+
+	just_close();
+}
+
 void session::just_close()
 {
 	if (!closing_) {
 		closing_ = true;
 
+		/*
+		 * basic_socket::close();
+		 *
+		 * This function is used to close the socket. Any asynchronous send, receive or connect
+		 * operations will be cancelled immediately, and will complete with the
+		 * boost::asio::error::operation_aborted error.
+		 */
 		local_socket_.close();
 		remote_socket_.close();
-
-		// FIXME: ¿Iniciar un timer por si las ops. async no terminan
-		// nunca? Nah.
 	}
 
 	if (async_ops_ == 0) {
