@@ -61,7 +61,9 @@ bool configparms::parse_opts(int argc, char** argv)
 		("penalty-inc-time", po::value<int>(&PENALTY_INC_TIME)->default_value(PENALTY_INC_TIME), "PENALTY_INC_TIME")
 		;
 
-	po::store(po::command_line_parser(argc, argv).options(config).run(), config_vm);
+	pos_.add("config", -1);
+
+	po::store(po::command_line_parser(argc, argv).options(config).positional(pos_).run(), config_vm);
 	po::notify(config_vm);
 
 	if (config_vm.count("config")) {
@@ -97,6 +99,16 @@ bool configparms::parse_opts(int argc, char** argv)
 
 	if (config_vm.count("verbose")) {
 		verbose = true;
+	}
+
+	if (!config_vm.count("listen-port")) {
+		std::cerr << "Debe especificar el puerto de escucha con --listen-port" << std::endl;
+		return false;
+	}
+
+	if (!config_vm.count("remote-port")) {
+		std::cerr << "Debe especificar el puerto remoto con --remote-port" << std::endl;
+		return false;
 	}
 
 	return true;

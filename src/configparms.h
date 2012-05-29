@@ -87,6 +87,7 @@ private:
 	po::options_description config;
 	std::string config_file_name;
 	po::variables_map config_vm;
+	po::positional_options_description pos_;
 };
 
 } /* namespace magoblanco */
