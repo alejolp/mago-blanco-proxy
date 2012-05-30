@@ -37,8 +37,10 @@ void server::run()
 
 void server::stop()
 {
+	mblog_.log("Cerrando...");
     io_service_accept_.stop();
     io_service_client_.stop();
+    mblog_.log("Cerrado.");
 }
 
 
@@ -55,7 +57,7 @@ void server::enqueue_for_deletion(session_ptr ss)
 bool server::on_session_open(session* ss)
 {
 	/*
-	 * THREADING NOTE: Esta funcion se ejecuta en un thread diferente a on_session_close.
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread de clientes.
 	 */
 
 	if (config_.get_verbose())
@@ -76,6 +78,7 @@ bool server::on_session_open(session* ss)
     boost::posix_time::ptime tact(boost::posix_time::second_clock::local_time());
 
     item.last_seen_ = tact;
+    item.total_connection_attempts_++;
 
     // Existe en la tabla?
     if (!e.second) {
@@ -100,7 +103,7 @@ bool server::on_session_open(session* ss)
 		}
 
     	// Limite maximo de sockets por IP al mismo tiempo.
-    	if ((int)item.count_ >= config_.get_MAX_CONNECTIONS_BY_IP()) {
+    	if ((int)item.active_connections_count_ >= config_.get_MAX_CONNECTIONS_BY_IP()) {
     		if (config_.get_verbose()) {
     			std::cerr << ss << " Limite por IP alcanzado" << std::endl;
     		}
@@ -129,7 +132,7 @@ bool server::on_session_open(session* ss)
     	 */
 
     	item.conn_cant_++;
-    	if (item.conn_cant_ > config_.get_MAX_TIME_COUNT()) {
+    	if ((int)item.conn_cant_ > config_.get_MAX_TIME_COUNT()) {
     		if ((tact - item.conn_first_).seconds() <= config_.get_MAX_TIME_DELTA()) {
 
 	    		attack_detected(tact, item, ss);
@@ -142,12 +145,12 @@ bool server::on_session_open(session* ss)
 		item.reset(tact);
     }
 
-	item.count_++;
+	item.active_connections_count_++;
 	item.clients_list_.insert(ss);
 
 	{
 		std::stringstream logs;
-		logs << ss << " Aceptada, count=" << item.count_ << " points=" << item.blocked_points_ << " conn_cant=" << item.conn_cant_;
+		logs << ss << " Aceptada, count=" << item.active_connections_count_ << " points=" << item.blocked_points_ << " conn_cant=" << item.conn_cant_;
 		mblog_.log(logs);
 	}
 
@@ -157,7 +160,7 @@ bool server::on_session_open(session* ss)
 void server::attack_detected(const boost::posix_time::ptime& tact, conn_table_item_t& item, session_ptr ss)
 {
 	/*
-	 * THREADING NOTE: Esta funcion es llamada por el thread listener. No hay mutexes bloqueados aun.
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread de clientes.
 	 */
 
 	int block_secs = config_.get_PENALTY_TIME() + item.blocked_points_;
@@ -177,14 +180,14 @@ void server::attack_detected(const boost::posix_time::ptime& tact, conn_table_it
 	item.blocked_points_ += config_.get_PENALTY_INC_TIME();
 
 	for (clients_list_t::iterator it = item.clients_list_.begin(); it != item.clients_list_.end(); ++it) {
-		(*it)->request_close();
+		(*it)->just_close();
 	}
 }
 
 void server::on_session_close(session* ss)
 {
 	/*
-	 * THREADING NOTE: Esta funcion se ejecuta en un thread diferente a on_session_open.
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread de clientes.
 	 */
 
 	if (config_.get_verbose())
@@ -197,35 +200,56 @@ void server::on_session_close(session* ss)
 
     assert(e != active_connections_by_addr_.end());
 
-	item.count_ -= 1;
+	item.active_connections_count_--;
 	item.clients_list_.erase(ss);
 
 	{
 		std::stringstream logs;
-		logs << ss << " Cerrada, count=" << item.count_ << " points=" << item.blocked_points_
-				<< " conn_cant=" << item.conn_cant_ << " active_table_size=" << active_connections_by_addr_.size();
+		logs << ss << " Cerrada, data_in_local=" << ss->total_local_data_
+				<< ", data_in_remote=" << ss->total_remote_data_
+				<< " active_conns_count=" << item.active_connections_count_
+				<< " points=" << item.blocked_points_
+				<< " conn_cant=" << item.conn_cant_
+				<< " active_table_size=" << active_connections_by_addr_.size();
 		mblog_.log(logs);
 	}
 
-	// FIXME: Hacer una limpieza de la tabla cada cierto tiempo? Tener en cuenta que map.insert se
-	//        llama desde otro thread.
+	// FIXME: Hacer una limpieza de la tabla cada cierto tiempo?
 }
 
 bool server::connect_want(session_ptr ss)
 {
 	/*
-	 * THREADING NOTE: Puede ser llamada por ambos threads.
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread de clientes.
 	 */
 
-	boost::mutex::scoped_lock l(clients_queue_lock_);
+	// FIXME: Este lock esta comentado porque hay un unico thread de clientes.
+//	boost::mutex::scoped_lock l(clients_queue_lock_);
 	bool ret;
+
+    ipv4_count_map_t::iterator e = active_connections_by_addr_.find(ss->remote_endpoint_addr());
+    conn_table_item_t& item = (*e).second;
 
 	++clients_connecting_;
 
-	if (clients_connecting_ <= get_config().get_MAX_CONCURRENT_CONNS_TO_REMOTE()) {
+	if (clients_for_connect_.empty() && clients_connecting_ <= get_config().get_MAX_CONCURRENT_CONNS_TO_REMOTE())
+	{
+		ss->waiting_for_connect_ = false;
 		ret = true;
-	} else {
-		clients_for_connect_.push_back(*ss);
+	}
+	else
+	{
+		/*
+		 * La prioridad de la nueva conexion. Mientras mas grande es el valor, menor es la prioridad.
+		 *
+		 */
+		std::size_t prioridad =
+				item.active_connections_count_
+				+ item.conn_cant_
+				+ item.blocked_points_
+				+ item.total_connection_attempts_;
+
+		clients_for_connect_.push(prioridad, ss, &ss->handle_);
 		ss->waiting_for_connect_ = true;
 		ret = false;
 	}
@@ -242,20 +266,21 @@ bool server::connect_want(session_ptr ss)
 bool server::connect_done(session_ptr ss)
 {
 	/*
-	 * THREADING NOTE: Puede ser llamada por ambos threads.
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread de clientes.
 	 */
 
-	boost::mutex::scoped_lock l(clients_queue_lock_);
+//	boost::mutex::scoped_lock l(clients_queue_lock_);
 
 	--clients_connecting_;
 
 	if (!clients_for_connect_.empty()) {
-		session& next = clients_for_connect_.front();
-		clients_for_connect_.pop_front();
+		session_ptr next = clients_for_connect_.front();
+		clients_for_connect_.pop();
 
 		/* Passing the baton, passing the papa caliente */
 
-		next.start_connect();
+		next->waiting_for_connect_ = false;
+		next->start_connect();
 	}
 
 	{
@@ -270,15 +295,14 @@ bool server::connect_done(session_ptr ss)
 void server::connect_force_remove(session_ptr ss)
 {
 	/*
-	 * THREADING NOTE: Puede ser llamada por ambos threads.
+	 * THREADING NOTE: Esta funcion se ejecuta en el thread de clientes.
 	 */
 
-	boost::mutex::scoped_lock l(clients_queue_lock_);
+//	boost::mutex::scoped_lock l(clients_queue_lock_);
 
 	if (ss->waiting_for_connect_) {
 		ss->waiting_for_connect_ = false;
-		// O(1) yeah!!
-		clients_for_connect_.erase( waiting_for_connect_list_t::s_iterator_to(*ss) );
+		clients_for_connect_.remove(&ss->handle_);
 		--clients_connecting_;
 	}
 }
@@ -328,18 +352,15 @@ void server::handle_accept(session* new_session,
 
     if (!error)
     {
-    	new_session->init();
-
-        if (on_session_open(new_session)) {
-            new_session->start();
-        } else {
-            delete new_session;
-        }
+    	process_new_session(new_session);
     }
     else
     {
-    	if (config_.get_verbose())
-    		std::cout << "Listener error: " << error.message() << std::endl;
+    	{
+    		std::stringstream logs;
+    		logs << "Listener error: " << error.message();
+    		mblog_.log(logs);
+    	}
 
         delete new_session;
     }
@@ -347,8 +368,38 @@ void server::handle_accept(session* new_session,
     start_accept();
 }
 
+void server::process_new_session(session* new_session)
+{
+	/*
+	 * THREADING NOTE: esta funcion se llama desde el thread listener.
+	 */
+
+	// Se dispara un callback para ejecutarse en el thread de clientes.
+
+	io_service_client_.post(boost::bind(&server::process_new_session_handler, this, new_session));
+}
+
+void server::process_new_session_handler(session* new_session)
+{
+	/*
+	 * THREADING NOTE: esta funcion se llama desde el thread de clientes.
+	 */
+
+	new_session->init();
+
+	if (on_session_open(new_session)) {
+		new_session->start();
+	} else {
+		delete new_session;
+	}
+}
+
 void server::dispose_sessions()
 {
+	/*
+	 * THREADING NOTE: esta funcion se llama desde el thread de clientes.
+	 */
+
     while (!clients_for_closing_.empty())
     {
         session_ptr ss = clients_for_closing_.front();

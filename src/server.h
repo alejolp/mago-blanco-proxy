@@ -22,6 +22,7 @@
 
 #include "configparms.h"
 #include "session.h"
+#include "sessionsqueue.h"
 
 #ifndef SERVER_H_
 #define SERVER_H_
@@ -65,16 +66,25 @@ typedef boost::unordered_set<
 class conn_table_item_t
 {
 public:
-	conn_table_item_t(boost::pool_allocator< session_ptr >& alloc) : count_(0), conn_cant_(0), blocked_dirty_(true), blocked_points_(0), clients_list_(alloc) {}
+	conn_table_item_t(boost::pool_allocator< session_ptr >& alloc) : clients_list_(alloc) {
+		 active_connections_count_ = 0;
+		 total_connection_attempts_ = 0;
+		 conn_cant_ = 0;
+		 blocked_dirty_ = true;
+		 blocked_points_ = 0;
+	}
 
 	// Cantidad de sockets abiertos de esta IP
-	std::size_t count_;
+	std::size_t active_connections_count_;
+
+	// Cantidad total de intentos de conexion desde esta IP
+	std::size_t total_connection_attempts_;
 
 	// Primera vez que se vio la IP en este segmento de tiempo
 	boost::posix_time::ptime conn_first_;
 
 	// Cantidad de intentos de conexion en este segmento de tiempo
-	int conn_cant_;
+	std::size_t conn_cant_;
 
 	// Ultima actividad (connect, close) de esta IP
 	boost::posix_time::ptime last_seen_;
@@ -120,6 +130,9 @@ class server : private boost::noncopyable
 
     private:
 
+        void process_new_session(session* new_session);
+        void process_new_session_handler(session* new_session);
+
         void connect_force_remove(session_ptr ss);
 
         void clients_thread_func();
@@ -152,7 +165,7 @@ class server : private boost::noncopyable
         // al host remoto. El limite de conexiones simultaneas es MAX_CONCURRENT_CONNS_TO_REMOTE
         int clients_connecting_;
         boost::mutex clients_queue_lock_;
-        waiting_for_connect_list_t clients_for_connect_;
+        sessions_queue clients_for_connect_;
 
         boost::pool_allocator< session_ptr > alloc_session_ptr_;
 };

@@ -40,13 +40,15 @@ freely, subject to the following restrictions:
  *
  * FIXME: Limitar la cantidad de conexiones globales simultáneas.
  *
- * FIXME: Agregar el algoritmo de queues.
+ * FIXME: En vez de tener una sola queue, tener varias?.
  *
- * FIXME: Crear un pool de threads y mover el codigo de deteccion de DDoS a los threads del pool.
+ * FIXME: Crear un pool de threads.
  *
  * FIXME: Verificar que el uso de socket::close() esté bien, intentar usar shutdown().
  *
- * Desarrollado con boost version 1.42.
+ * FIXME: Agregar el mecanismo para enviarle la IP al servicio.
+ *
+ * Desarrollado con boost version 1.49.
  *
  *
  */
@@ -57,6 +59,7 @@ freely, subject to the following restrictions:
 #include <deque>
 #include <fstream>
 #include <sstream>
+#include <csignal>
 
 #include "magoblanco.hpp"
 #include "logger.h"
@@ -65,11 +68,29 @@ freely, subject to the following restrictions:
 
 using boost::asio::ip::tcp;
 
+namespace
+{
+	magoblanco::server * volatile servp = 0;
+	volatile std::sig_atomic_t quit = 0;
+
+	void int_signal_handler(int sig)
+	{
+		quit = 1;
+		if (servp)
+			servp->stop();
+	}
+}
 
 int main(int argc, char* argv[])
 {
 	magoblanco::configparms confp;
 	magoblanco::logger mblog;
+
+    std::signal(SIGINT, int_signal_handler);
+    std::signal(SIGTERM, int_signal_handler);
+#ifdef SIGBREAK
+    std::signal(SIGBREAK, int_signal_handler);
+#endif
 
     try
     {
@@ -99,6 +120,7 @@ int main(int argc, char* argv[])
         }
 
         magoblanco::server s(confp, mblog);
+        servp = &s;
 
         if (confp.get_destination_is_localhost())
         {
@@ -115,7 +137,9 @@ int main(int argc, char* argv[])
             confp.set_destination_ep(*iterator);
         }
 
-        s.run();
+        if (!quit) {
+        	s.run();
+        }
     }
     catch (std::exception& e)
     {

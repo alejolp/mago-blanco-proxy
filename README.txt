@@ -1,13 +1,15 @@
 
 Mago Blanco - "Thou Shall Not Pass"
+http://code.google.com/p/mago-blanco-proxy/
+
 Alejandro Santos - http://www.alejolp.com.ar
 
 Pequeño proxy de conexiones TCP IPv4, para intentar resistir un ataque de 
 negacion de servicio. Migrar a TCPv6 no deberia ser complicado, boost es
 muy util en este sentido.
 
-El objetivo es distribuir la carga entre varios cores del servidor para evitar
-saturar el servicio detrás del proxy.
+El objetivo es evitar saturar el servicio detrás del proxy distribuyendo
+la carga entre varios cores del servidor.
 
 La configuración se puede hacer por medio de la línea de comandos, o por un
 archivo externo, mediante la opción "--config archivo.cfg". Las opciones son
@@ -15,21 +17,41 @@ las mismas que las de la línea de comandos, con la siguiente sintaxis:
 
   opcion=valor
 
+A su vez, la primer opcion implícita del proxy es tambien el archivo de
+configuracion, por lo que se puede indicar sin necesidad de usar --config:
+
+  magoblanco.exe archivo.cfg
+
+Actualmente hay dos threads en el proxy. El primer thread se encarga de aceptar
+nuevos pedidos de conexion, y nada más. Esto permite que el proxy acepte
+nuevas conexiones lo más rápido posible sin saturar el backlog del socket.
+
+El segundo thread se encarga de detectar si la nueva conexión tiene permitido
+conectarse al servicio, y hacer de pasarela de datos para cuando se le
+permitió el acceso.
+
+El proxy permite limitar la cantidad máxima de pedidos de conexion hacia el
+servicio mediante la opcion --max-conc-conns-to-remote. Si el servicio no
+es capaz de atender los pedidos de conexion lo suficientemente rápido,
+el proxy deja en espera los pedidos y va generando pedidos de conexion
+a medida que el servicio responda.
+
+El proxy a su vez tiene un scheduler de pedidos de conexiones. Los pedidos
+de conexion en espera se almacenan en una cola de prioridad, donde se les
+asigna un puntaje. La cola de prioridad es una "Fibonacci Heap".
+
+Las conexiones con el menor puntaje tienen prioridad para conectarse al 
+servicio, mientras que las de mayor puntaje deben esperar a que las primeras
+lo hagan.  
+
 Al ser un proxy, las conexiones entrantes deben llegar primero al proxy,
-para luego ser redirigidas al servicio real. El servicio debe tener la 
-opción de cambiar de número de puerto de escucha, y de poder hacerle
-bind en la interfaz de red loopback.
+para luego ser redirigidas al servicio real.
+
+IMPORTANTE: El servicio debe tener la opción de cambiar de número de 
+puerto de escucha, y de poder hacerle bind en la interfaz de red loopback.
 
 Este proxy a su vez permite ser ejecutado en una PC dedicada. Esto se hace
 indicando la dirección IP real en donde el servició se esté ejecutando.
-
-Una vez iniciado, se levantan dos threads: uno que solo se encarga de aceptar
-nuevas conexiones, y otro thread que se encarga de hacer la pasarela de
-envio y recepcion de datos. Lo que llega por un socket lo manda por el otro
-y viceversa.
-
-Tener un thread dedicado solo a aceptar conexiones hace que se puedan
-aceptar tan rapido como sea posible, sin saturar el backlog del socket.
 
 Se valida la cantidad de conexiones activas desde una misma IP al mismo
 tiempo, y tambien la cantidad de intentos de conexion en un período de
@@ -62,6 +84,7 @@ boost::object_pool.
 Los objetos session representan cada conexion abierta.
 
 Se puso especial esfuerzo en hacer que el código sea O(1) donde sea posible.
+La cola de prioridad es O(log n), con n=cantidad de eventos en espera.
 
 LICENCE:
 --------

@@ -5,6 +5,8 @@
  *      Author: alejo
  */
 
+#include <boost/thread.hpp>
+
 #include "session.h"
 #include "server.h"
 
@@ -12,17 +14,20 @@ namespace magoblanco {
 
 namespace {
 	boost::object_pool<session> session_allocator_;
+	boost::mutex session_allocator_mutex_;
 }
 
 // Manejo de memoria custom para los objetos session.
 
 void* session::operator new(size_t size)
 {
+	boost::mutex::scoped_lock l(session_allocator_mutex_);
 	return static_cast<void*>(session_allocator_.malloc());
 }
 
 void session::operator delete(void *ptr)
 {
+	boost::mutex::scoped_lock l(session_allocator_mutex_);
 	session_allocator_.free(static_cast<session*>(ptr));
 }
 

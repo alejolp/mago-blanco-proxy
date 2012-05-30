@@ -7,9 +7,9 @@
 
 #include <boost/noncopyable.hpp>
 #include <boost/asio.hpp>
-#include <boost/intrusive/list.hpp>
 
 #include "configparms.h"
+#include "sessionsqueue.h"
 
 
 #ifndef SESSION_H_
@@ -53,6 +53,7 @@ class session : private boost::noncopyable
         inline boost::asio::io_service& get_io_service() { return local_socket_.get_io_service(); }
 
         void request_close();
+        void just_close();
 
 	private:
         void *operator new[](size_t size);
@@ -77,7 +78,6 @@ class session : private boost::noncopyable
                 size_t bytes_transferred);
         void handle_local_write(const boost::system::error_code& error);
 
-        void just_close();
         void request_close_handler();
 
         void error_and_close(const boost::system::error_code& err);
@@ -113,12 +113,8 @@ public:
         int64_t total_local_data_;
         bool waiting_for_connect_;
 
-        boost::intrusive::list_member_hook<> waiting_for_connect_hook_;
+        session_handle handle_;
 };
-
-typedef boost::intrusive::member_hook<session, boost::intrusive::list_member_hook<>, &session::waiting_for_connect_hook_> waiting_for_connect_hook_t;
-
-typedef boost::intrusive::list<session, waiting_for_connect_hook_t> waiting_for_connect_list_t;
 
 
 } /* namespace magoblanco */
