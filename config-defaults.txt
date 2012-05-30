@@ -1,0 +1,11 @@
+log=log.txt
+log-rotation=60
+listen-port=8080
+remote-port=8000
+remote-host=localhost
+max-conns-by-ip=20
+max-conc-conns-to-remote=5
+max-time-delta=5
+max-time-count=5
+penalty-time=30
+penalty-inc-time=30
