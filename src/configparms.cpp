@@ -40,6 +40,7 @@ configparms::configparms()
 	MAX_TIME_COUNT = MB_DEFAULT_MAX_TIME_COUNT;
 	PENALTY_TIME = MB_DEFAULT_PENALTY_TIME;
 	PENALTY_INC_TIME = MB_DEFAULT_PENALTY_INC_TIME;
+	log_rotation_mins = MB_DEFAULT_LOG_ROTATION_MINS;
 }
 
 configparms::~configparms() {}
@@ -52,6 +53,7 @@ bool configparms::parse_opts(int argc, char** argv)
 		("verbose", "Activa la salida de debug")
 		("config,c", po::value<std::string>(&config_file_name), "Archivo de configuracion")
 		("log", po::value<std::string>(&log_file_name), "Archivo de log")
+		("log-rotation", po::value<std::size_t>(&log_rotation_mins)->default_value(log_rotation_mins), "Rotacion de logs en minutos, 0 para desactivar.")
 		("listen-port,l", po::value<int>(&PORT_LOCAL), "Puerto de escucha")
 		("remote-port,r", po::value<int>(&PORT_REMOTE), "Puerto remoto")
 		("remote-host,h", po::value<std::string>(&destination)->default_value("localhost"), "Host remoto")

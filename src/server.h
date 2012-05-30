@@ -130,6 +130,8 @@ class server : private boost::noncopyable
                 const boost::system::error_code& error);
         void handle_timer(const boost::system::error_code&);
 
+        void dispose_sessions();
+
         void attack_detected(const boost::posix_time::ptime& tact, conn_table_item_t& item, session_ptr ss);
 
         magoblanco::configparms& config_;

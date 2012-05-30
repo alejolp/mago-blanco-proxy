@@ -24,6 +24,8 @@ freely, subject to the following restrictions:
    distribution.
  */
 
+#include <sstream>
+
 #include "logger.h"
 
 namespace magoblanco {
@@ -38,10 +40,26 @@ logger::~logger()
 
 }
 
-void logger::open(const std::string& file_name)
+void logger::open(const std::string& file_name, std::size_t rotation)
 {
+	boost::posix_time::ptime tact(boost::posix_time::second_clock::local_time());
+	std::string fn2 = file_name;
+
+	if (rotation)
+		fn2 += "-" + boost::posix_time::to_iso_string(tact);
+
 	file_name_ = file_name;
-	log_file_.open(file_name.c_str(), std::ios_base::app | std::ios_base::ate);
+	rotation_ = rotation;
+	last_rotation_ = tact;
+	log_file_.open(fn2.c_str(), std::ios_base::app | std::ios_base::ate);
+}
+
+void logger::check_rotation(const boost::posix_time::ptime& tact)
+{
+	if (rotation_ && (tact - last_rotation_) > boost::posix_time::minutes(rotation_)) {
+		log_file_.close();
+		open(file_name_, rotation_);
+	}
 }
 
 void logger::close()

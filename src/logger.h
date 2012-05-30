@@ -41,26 +41,29 @@ public:
 	logger();
 	virtual ~logger();
 
-	void open(const std::string& file_name);
+	void open(const std::string& file_name, std::size_t rotation);
 	void close();
 
 	inline void log(const std::string& s) {
 		boost::mutex::scoped_lock l(m_);
 		boost::posix_time::ptime tact(boost::posix_time::second_clock::local_time());
+		check_rotation(tact);
 
 		log_file_ << tact << " - " << s << std::endl;
 	}
 
 	inline void log(const std::stringstream& s) {
-		boost::mutex::scoped_lock l(m_);
-		boost::posix_time::ptime tact(boost::posix_time::second_clock::local_time());
-
-		log_file_ << tact << " - "<< s.str() << std::endl;
+		log(s.str());
 	}
+
 private:
+	void check_rotation(const boost::posix_time::ptime& tact);
+
 	std::string file_name_;
 	std::ofstream log_file_;
 	boost::mutex m_;
+	std::size_t rotation_;
+	boost::posix_time::ptime last_rotation_;
 };
 
 }

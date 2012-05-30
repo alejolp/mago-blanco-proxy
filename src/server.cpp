@@ -347,12 +347,8 @@ void server::handle_accept(session* new_session,
     start_accept();
 }
 
-void server::handle_timer(const boost::system::error_code&)
+void server::dispose_sessions()
 {
-	/*
-	 * THREADING NOTE: esta funcion se llama desde el thread de clientes.
-	 */
-
     while (!clients_for_closing_.empty())
     {
         session_ptr ss = clients_for_closing_.front();
@@ -366,6 +362,15 @@ void server::handle_timer(const boost::system::error_code&)
 
         delete ss;
     }
+}
+
+void server::handle_timer(const boost::system::error_code&)
+{
+	/*
+	 * THREADING NOTE: esta funcion se llama desde el thread de clientes.
+	 */
+
+	dispose_sessions();
 
     start_timer();
 }

@@ -28,7 +28,7 @@ freely, subject to the following restrictions:
 /*
  * FIXME: Creo que hay una mezcla horrible de tabs y espacios en el mismo codigo.
  *
- * FIXME: No hay ni un solo comentario en el codigo. Horror.
+ * FIXME: Agregar más comentarios en el código.
  *
  * FIXME: Probar Google sparsehash.
  *
@@ -38,15 +38,13 @@ freely, subject to the following restrictions:
  *
  * FIXME: La implementacion de frecuencia es muy naive, hacer algo mejorcito.
  *
- * FIXME: Guardar logs y estadisticas. Rotacion de logs.
- *
- * FIXME: Limitar la cantidad de intentos de conexiones simultáneas hacia el host remoto.
- *
  * FIXME: Limitar la cantidad de conexiones globales simultáneas.
  *
  * FIXME: Agregar el algoritmo de queues.
  *
  * FIXME: Crear un pool de threads y mover el codigo de deteccion de DDoS a los threads del pool.
+ *
+ * FIXME: Verificar que el uso de socket::close() esté bien, intentar usar shutdown().
  *
  * Desarrollado con boost version 1.42.
  *
@@ -83,7 +81,7 @@ int main(int argc, char* argv[])
 
         if (confp.get_log_file_name().size()) {
         	try {
-        		mblog.open(confp.get_log_file_name());
+        		mblog.open(confp.get_log_file_name(), confp.get_log_rotation());
 
         	} catch (std::exception e) {
         		std::cerr << "Error al abrir el archivo de log" << std::endl;
