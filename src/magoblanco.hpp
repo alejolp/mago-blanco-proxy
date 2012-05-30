@@ -1,4 +1,7 @@
 /*
+   Mago Blanco - "You Shall Not Pass"
+   Alejandro Santos - alejolp@alejolp.com.ar
+
 Copyright (c) 2012 Alejandro Santos
 
 This software is provided 'as-is', without any express or implied
